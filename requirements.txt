@@ -11,4 +11,4 @@ scipy
 prince
 openpyxl
 xlrd
-matpotlib
+matplotlib
