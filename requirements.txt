@@ -1,0 +1,14 @@
+streamlit
+pandas
+numpy
+sastrawi
+nltk
+networkx
+pyvis
+plotly
+scikit-learn
+scipy
+prince
+openpyxl
+xlrd
+matpotlib
