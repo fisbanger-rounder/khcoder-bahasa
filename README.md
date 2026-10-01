@@ -34,12 +34,29 @@ streamlit run app.py
 
 Kemudian buka URL yang muncul di terminal (biasanya `http://localhost:8501`).
 
+## Catatan Keamanan & Batasan
+
+- **Tanpa autentikasi.** Aplikasi menyajikan isi dokumen yang diunggah, jadi `.streamlit/config.toml`
+  membatasi `address = "127.0.0.1"` (hanya lokal) dan `maxUploadSize = 25` MB. Ubah hanya jika
+  dijalankan di belakang reverse proxy yang menangani autentikasi.
+- Batas 20.000 baris (`MAX_ROWS` di `app.py`) karena seluruh korpus diproses di memori.
+- Setiap sesi bersifat independen; tidak ada berkas yang ditulis ke disk saat runtime.
+
 ## Cara Penggunaan
 
 1. Unggah berkas dokumen melalui sidebar.
 2. Pilih kolom teks utama (dan kolom kategori opsional).
 3. Opsional: aktifkan *Stemming Sastrawi* untuk normalisasi kata (lebih lambat).
 4. Jelajahi hasil analisis melalui keenam tab yang tersedia.
+
+Berkas `.txt` / `.md` dipisah per paragraf, dan kolom `Bagian` (nomor paragraf) otomatis
+terisi sehingga tab *Kata Khas per Bagian* bisa langsung dipakai.
+
+## Pengujian
+
+```bash
+python test_textminer.py
+```
 
 ## Teknologi
 

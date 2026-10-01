@@ -1,0 +1,11 @@
+[server]
+# The whole corpus is held in memory and vectorized several times per rerun, so keep
+# uploads small. Raise deliberately, not by accident (Streamlit's default is 200).
+maxUploadSize = 25
+
+# Bind to localhost only: the app has no authentication and serves uploaded documents.
+# Use "0.0.0.0" only behind an authenticating reverse proxy.
+address = "127.0.0.1"
+
+[browser]
+gatherUsageStats = false
