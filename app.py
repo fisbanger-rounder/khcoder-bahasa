@@ -9,6 +9,7 @@ from pyvis.network import Network
 import streamlit.components.v1 as components
 import io
 import logging
+import textwrap
 
 # NLP & Stats
 from sklearn.feature_extraction.text import CountVectorizer
@@ -18,6 +19,11 @@ from scipy.cluster.hierarchy import linkage, dendrogram
 from scipy.spatial.distance import squareform
 from scipy.stats import chi2_contingency
 import prince
+
+import matplotlib
+matplotlib.use("Agg")  # headless; we only ever save figures to PDF
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 
 from textminer import get_kwic, preprocess_text
 
@@ -55,6 +61,119 @@ def build_corpus(df, text_column, do_stemming):
     """Tokenize the corpus once; cached so slider moves don't re-stem everything."""
     tokens = df[text_column].apply(lambda x: preprocess_text(x, do_stemming=do_stemming))
     return tokens, tokens.apply(" ".join)
+
+# -----------------------------------------------------------------------------
+# 1b. PDF EXPORT (matplotlib only - the app has no kaleido/Chrome for Plotly/Pyvis)
+# -----------------------------------------------------------------------------
+def _build_pdf(pages):
+    """Render each draw(fig, ax) callback as one A4 page; return PDF bytes."""
+    buf = io.BytesIO()
+    with PdfPages(buf) as pdf:
+        for draw in pages:
+            fig, ax = plt.subplots(figsize=(8.27, 11.69))
+            ax.axis("off")
+            draw(fig, ax)
+            pdf.savefig(fig, bbox_inches="tight")
+            plt.close(fig)
+    return buf.getvalue()
+
+
+def _table_page(fig, ax, df, title, max_rows=25, max_chars=42):
+    """One landscape page holding a table. Long cells are truncated to fit."""
+    fig.set_size_inches(11.69, 8.27)
+    ax.set_title(title, fontsize=13, fontweight="bold", loc="left")
+    if not isinstance(df.index, pd.RangeIndex):
+        df = df.reset_index()  # keep meaningful indexes (e.g. crosstab words)
+    d = df.head(max_rows).map(lambda v: textwrap.shorten(str(v), max_chars, placeholder="…"))
+    tbl = ax.table(cellText=d.values, colLabels=[str(c) for c in d.columns], loc="center", cellLoc="left")
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(8)
+    tbl.scale(1, 1.4)
+
+
+def _bar_page(fig, ax, df, title):
+    ax.set_title(title, fontsize=13, fontweight="bold", loc="left")
+    d = df.iloc[::-1]
+    ax.barh(d.iloc[:, 0], d.iloc[:, 1], color="teal")
+    ax.tick_params(labelsize=8)
+
+
+def _scatter_page(fig, ax, df, xcol, ycol, labelcol, title, groupcol=None):
+    ax.set_title(title, fontsize=13, fontweight="bold", loc="left")
+    if groupcol:
+        for name, grp in df.groupby(groupcol):
+            ax.scatter(grp[xcol], grp[ycol], s=30, label=name)
+        ax.legend(fontsize=8)
+    else:
+        ax.scatter(df[xcol], df[ycol], s=30, color="teal")
+    for _, row in df.iterrows():
+        ax.annotate(str(row[labelcol]), (row[xcol], row[ycol]), fontsize=7)
+    ax.tick_params(labelsize=8)
+
+
+def _dendro_page(fig, ax, Z, labels, title):
+    ax.set_title(title, fontsize=13, fontweight="bold", loc="left")
+    dendrogram(Z, labels=list(labels), leaf_rotation=90, ax=ax)
+    ax.tick_params(labelsize=7)
+
+
+def _network_page(fig, ax, edges_df, title):
+    ax.set_title(title, fontsize=13, fontweight="bold", loc="left")
+    graph = nx.from_pandas_edgelist(edges_df, "source", "target", "weight")
+    pos = nx.spring_layout(graph, seed=42)
+    sizes = [graph.degree(n) * 40 + 80 for n in graph.nodes]
+    nx.draw_networkx(graph, pos, ax=ax, node_size=sizes, font_size=6, width=0.5)
+    ax.axis("off")
+
+
+# One cached builder per tab: keyed on the result data, so slider moves reuse the PDF.
+@st.cache_data(show_spinner=False)
+def pdf_frekuensi(freq_df, top_n):
+    return _build_pdf([
+        lambda f, a: _table_page(f, a, freq_df, f"Daftar Frekuensi Kata (Top {top_n})"),
+        lambda f, a: _bar_page(f, a, freq_df, f"Top {top_n} Kata Sering Muncul"),
+    ])
+
+
+@st.cache_data(show_spinner=False)
+def pdf_kwic(kwic_df, keyword):
+    return _build_pdf([lambda f, a: _table_page(f, a, kwic_df, f"Konteks Kata (KWIC): {keyword}")])
+
+
+@st.cache_data(show_spinner=False)
+def pdf_jaringan(edges_df):
+    return _build_pdf([
+        lambda f, a: _network_page(f, a, edges_df, "Jaringan Ko-okurensi Kata"),
+        lambda f, a: _table_page(f, a, edges_df, "Daftar Sisi (Co-occurrence)"),
+    ])
+
+
+@st.cache_data(show_spinner=False)
+def pdf_eksplorasi(mds_df, Z, words):
+    return _build_pdf([
+        lambda f, a: _scatter_page(f, a, mds_df, "Dimensi 1", "Dimensi 2", "Kata", "Peta Multidimensional Scaling (MDS)"),
+        lambda f, a: _dendro_page(f, a, Z, words, "Dendrogram Pengelompokan Kata"),
+    ])
+
+
+@st.cache_data(show_spinner=False)
+def pdf_korespondensi(ca_plot_df):
+    return _build_pdf([
+        lambda f, a: _scatter_page(f, a, ca_plot_df, "Dim 1", "Dim 2", "Label",
+                                   "Analisis Korespondensi (Kata vs Kategori)", groupcol="Tipe"),
+    ])
+
+
+@st.cache_data(show_spinner=False)
+def pdf_kata_khas(keyness_df, crosstab):
+    return _build_pdf([
+        lambda f, a: _table_page(f, a, keyness_df.head(15), "Kata Paling Signifikan (Chi-Square Keyness)"),
+        lambda f, a: _table_page(f, a, crosstab, "Tabel Silang Frekuensi Kata per Kategori"),
+    ])
+
+
+def _download_pdf(pdf_bytes, filename):
+    st.download_button("⬇️ Unduh Hasil (PDF)", pdf_bytes, file_name=filename, mime="application/pdf")
 
 # -----------------------------------------------------------------------------
 # 2. UI SIDEBAR - DATA UPLOAD & CONTROL PANEL
@@ -148,6 +267,8 @@ if uploaded_file is not None:
             fig.update_layout(yaxis={'categoryorder':'total ascending'})
             st.plotly_chart(fig)
 
+        _download_pdf(pdf_frekuensi(freq_df, top_n), "frekuensi_kata.pdf")
+
     # -------------------------------------------------------------------------
     # TAB 2: CONTEXT WHERE A WORD IS USED (KWIC)
     # -------------------------------------------------------------------------
@@ -163,6 +284,7 @@ if uploaded_file is not None:
             if not kwic_df.empty:
                 st.write(f"Ditemukan **{len(kwic_df)}** Kemunculan:")
                 st.dataframe(kwic_df)
+                _download_pdf(pdf_kwic(kwic_df, search_kw), "konteks_kata.pdf")
             else:
                 st.warning(f"Kata '{search_kw}' tidak ditemukan dalam dokumen.")
 
@@ -197,6 +319,13 @@ if uploaded_file is not None:
                     G.add_edge(words[i], words[j], weight=int(weight))
                     
         if G.number_of_edges() > 0:
+            # Snapshot edges up front: Pyvis' from_nx() rewrites each edge's "weight"
+            # attribute to "width" in place, so reading G after it loses the weights.
+            edges_df = pd.DataFrame(
+                [(u, v, d["weight"]) for u, v, d in G.edges(data=True)],
+                columns=["source", "target", "weight"],
+            )
+
             net = Network(height="550px", width="100%", bgcolor="#222222", font_color="white",
                           cdn_resources="in_line")
             net.from_nx(G)
@@ -207,6 +336,8 @@ if uploaded_file is not None:
             
             # generate_html() returns the page; never write it to disk (shared CWD = cross-session leak)
             components.html(net.generate_html(), height=570)
+
+            _download_pdf(pdf_jaringan(edges_df), "jaringan_ko_okurensi.pdf")
         else:
             st.warning("Tidak ada hubungan kata yang memenuhi ambang batas minimum.")
 
@@ -243,12 +374,13 @@ if uploaded_file is not None:
             # linkage() on a square matrix silently recomputes pdist(y) with Euclidean metric,
             # discarding the cosine distances. Pass the condensed form instead.
             Z = linkage(squareform(dist_matrix, checks=False), method='average')
-            import matplotlib.pyplot as plt
             fig_dend, ax = plt.subplots(figsize=(10, 4))
             dendrogram(Z, labels=words_exp, leaf_rotation=90, ax=ax)
             ax.set_ylabel("Jarak (Distance)")
             st.pyplot(fig_dend)
             plt.close(fig_dend)
+
+        _download_pdf(pdf_eksplorasi(mds_df, Z, words_exp), "eksplorasi_ko_okurensi.pdf")
 
     # -------------------------------------------------------------------------
     # TAB 5: CORRESPONDENCE ANALYSIS OF WORDS
@@ -289,6 +421,7 @@ if uploaded_file is not None:
                                     title="Peta Analisis Korespondensi (Kata vs Kategori)")
                 fig_ca.update_traces(textposition='top center', marker=dict(size=10))
                 st.plotly_chart(fig_ca)
+                _download_pdf(pdf_korespondensi(ca_plot_df), "analisis_korespondensi.pdf")
         else:
             st.info("Pilih 'Kolom Kategori/Bagian' di sidebar sebelah kiri untuk menjalankan Analisis Korespondensi.")
 
@@ -334,6 +467,7 @@ if uploaded_file is not None:
                 
                 st.subheader("Tabel Silang Frekuensi Kata per Kategori")
                 st.dataframe(ct_sum.T)
+                _download_pdf(pdf_kata_khas(keyness_df, ct_sum.T), "kata_khas.pdf")
         else:
             st.info("Pilih 'Kolom Kategori/Bagian' di sidebar sebelah kiri untuk melihat Kata Khas per Bagian.")
 
