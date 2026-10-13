@@ -47,7 +47,8 @@ Kemudian buka URL yang muncul di terminal (biasanya `http://localhost:8501`).
 1. Unggah berkas dokumen melalui sidebar.
 2. Pilih kolom teks utama (dan kolom kategori opsional).
 3. Opsional: aktifkan *Stemming Sastrawi* untuk normalisasi kata (lebih lambat).
-4. Jelajahi hasil analisis melalui keenam tab yang tersedia.
+4. Tekan tombol **Mulai Analisis** untuk memproses teks.
+5. Jelajahi hasil analisis melalui keenam tab yang tersedia.
 
 Berkas `.txt` / `.md` dipisah per paragraf, dan kolom `Bagian` (nomor paragraf) otomatis
 terisi sehingga tab *Kata Khas per Bagian* bisa langsung dipakai.

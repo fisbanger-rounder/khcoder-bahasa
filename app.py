@@ -100,6 +100,18 @@ if uploaded_file is not None:
 
     do_stemming = st.sidebar.checkbox("Gunakan Stemming Sastrawi (Lebih lambat)", value=False)
 
+    # Analysis starts only after an explicit click. session_state keeps it alive across the
+    # reruns triggered by tab sliders; uploading a different file resets it.
+    if st.session_state.get("_analyzed_file") != uploaded_file.name:
+        st.session_state.analyze = False
+    if st.sidebar.button("🚀 Mulai Analisis"):
+        st.session_state.analyze = True
+        st.session_state["_analyzed_file"] = uploaded_file.name
+
+    if not st.session_state.get("analyze"):
+        st.info("👈 Unggah berkas, atur opsi di sidebar, lalu tekan **Mulai Analisis** untuk memulai.")
+        st.stop()
+
     # Preprocess Data (underscore-prefixed so user columns are never overwritten)
     with st.spinner("Memproses teks Bahasa Indonesia..."):
         df['_tokens'], df['_clean_text'] = build_corpus(df, text_column, do_stemming)
